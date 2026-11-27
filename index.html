@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASL Sign Language AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Climate+Crisis:YEAR@1979..2050&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ice-1: #f4f8f9;
+      --ice-2: #e8f0f3;
+      --ice-3: #dae7ec;
+
+      --deep: #0a2e3d;
+      --water: #2b8499;
+      --water-light: #8fd0e0;
+      --heat: #ff5b3a;
+
+      --ink: var(--deep);
+      --muted: #4a6774;
+      --line: rgba(10, 46, 61, 0.14);
+
+      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-display: "Climate Crisis", var(--font-body);
+
+      --pad-x: clamp(1.25rem, 5vw, 4rem);
+      --gutter: max(var(--pad-x), calc((100vw - 72rem) / 2));
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--ice-1);
+      color: var(--ink);
+      font-family: var(--font-body);
+      line-height: 1.6;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(rgba(10, 46, 61, 0.06) 1px, transparent 1px);
+      background-size: 28px 28px;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    ::selection {
+      background: var(--heat);
+      color: #fff;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--heat);
+      outline-offset: 4px;
+    }
+
+    .cursor-glow {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(63, 155, 176, 0.14) 0%, transparent 70%);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    /* ==================== FLOATING NAVBAR ==================== */
+    .navbar-wrapper {
+      position: sticky;
+      top: 1rem;
+      z-index: 1000;
+      padding: 0 var(--gutter);
+      pointer-events: none;
+    }
+
+    .navbar {
+      pointer-events: auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      max-width: 72rem;
+      margin: 0 auto;
+      padding: 0.55rem 0.75rem 0.55rem 1.35rem;
+      background: rgba(244, 248, 249, 0.82);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: 0 10px 30px -10px rgba(10, 46, 61, 0.08);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-variation-settings: "YEAR" 1979;
+      font-size: 1.05rem;
+      letter-spacing: 0.2px;
+      color: var(--deep);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.95rem;
+      border-radius: 999px;
+      background: var(--ice-2);
+      border: 1px solid var(--line);
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--deep);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .status-dot.active {
+      background: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+      animation: pulse 2.2s infinite;
+    }
+
+    .status-dot.loading {
+      background: var(--water);
+      animation: pulse 1s infinite;
+    }
+
+    .status-dot.error {
+      background: var(--heat);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.7; }
+    }
+
+    /* ==================== MAIN LAYOUT ==================== */
+    main {
+      position: relative;
+      z-index: 1;
+      padding: 2.5rem var(--gutter) 4rem;
+    }
+
+    .section-head {
+      margin-bottom: 2rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--water);
+      margin-bottom: 0.45rem;
+    }
+
+    .section-label span {
+      color: var(--heat);
+    }
+
+    .section-head h1 {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-variation-settings: "YEAR" 2000;
+      font-size: clamp(1.9rem, 4.5vw, 3.2rem);
+      line-height: 1.05;
+      color: var(--deep);
+    }
+
+    .section-head p {
+      color: var(--muted);
+      font-size: 0.98rem;
+      max-width: 26rem;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      gap: 2rem;
+      align-items: start;
+    }
+
+    .card {
+      background: rgba(232, 240, 243, 0.65);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--line);
+      border-radius: 1.35rem;
+      padding: 1.5rem;
+      box-shadow: 0 16px 36px -14px rgba(10, 46, 61, 0.1);
+    }
+
+    /* ==================== CAMERA COLUMN ==================== */
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: var(--deep);
+      border-radius: 1rem;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .placeholder {
+      position: absolute;
+      text-align: center;
+      color: var(--ice-2);
+      padding: 1.5rem;
+    }
+
+    .placeholder-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    .placeholder-sub {
+      font-size: 0.88rem;
+      color: var(--water-light);
+    }
+
+    .warning-banner {
+      position: absolute;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--heat);
+      color: #fff;
+      padding: 0.4rem 1rem;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      display: none;
+      box-shadow: 0 8px 20px -4px rgba(255, 91, 58, 0.5);
+    }
+
+    .cam-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 1.25rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    /* ==================== BUTTONS ==================== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      border: 1.5px solid var(--deep);
+      cursor: pointer;
+      transition: transform 0.25s var(--ease-out), background 0.25s ease, box-shadow 0.25s ease, color 0.25s ease;
+    }
+
+    .btn-primary {
+      background: var(--deep);
+      color: var(--ice-1);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #06212c;
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px -6px rgba(10, 46, 61, 0.35);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--deep);
+    }
+
+    .btn-outline:hover {
+      background: var(--ice-3);
+    }
+
+    .btn-heat {
+      background: transparent;
+      border-color: var(--heat);
+      color: var(--heat);
+    }
+
+    .btn-heat:hover {
+      background: var(--heat);
+      color: #fff;
+    }
+
+    .toggle-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-label input {
+      accent-color: var(--heat);
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+    }
+
+    /* ==================== RIGHT COLUMN ==================== */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .card-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--water);
+      margin-bottom: 0.9rem;
+    }
+
+    .prediction-display {
+      text-align: center;
+      padding: 1.5rem 1rem;
+      background: var(--deep);
+      color: var(--ice-1);
+      border-radius: 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .prediction-display::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 18px 18px;
+      pointer-events: none;
+    }
+
+    #result {
+      position: relative;
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-variation-settings: "YEAR" 2020;
+      font-size: 4rem;
+      line-height: 1.1;
+      min-height: 4.5rem;
+      color: var(--ice-1);
+    }
+
+    .conf-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-top: 1.1rem;
+      margin-bottom: 0.45rem;
+    }
+
+    #confValue {
+      color: var(--deep);
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 8px;
+      background: var(--ice-3);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--water), var(--heat));
+      border-radius: 999px;
+      transition: width 0.15s var(--ease-out);
+    }
+
+    .sentence-box {
+      width: 100%;
+      min-height: 6.5rem;
+      background: var(--ice-1);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 1rem 1.15rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--deep);
+      word-wrap: break-word;
+      margin-bottom: 1rem;
+    }
+
+    .sentence-box.empty {
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .sentence-actions {
+      display: flex;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .sentence-actions .btn {
+      flex: 1;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    /* ==================== RESPONSIVE ==================== */
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .navbar-wrapper { padding: 0 0.75rem; top: 0.65rem; }
+      .navbar { padding: 0.45rem 0.6rem 0.45rem 1rem; }
+      .brand-title { font-size: 0.92rem; }
+      .status-pill { font-size: 0.78rem; padding: 0.3rem 0.75rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cursor-glow { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="cursor-glow" id="cursorGlow"></div>
+
+  <div class="navbar-wrapper">
+    <nav class="navbar">
+      <div class="brand">
+        <span class="brand-title">ASL AI</span>
+      </div>
+      <div class="status-pill">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">Sẵn sàng khởi động</span>
+      </div>
+    </nav>
+  </div>
+
+  <main>
+    <div class="section-head">
+      <div>
+        <div class="section-label"><span>01</span> — Real-time Recognition</div>
+       
+      </div>
+      <p>Nhận diện Ngôn ngữ Ký hiệu ASL trực tiếp trên trình duyệt với MediaPipe Hands &amp; TensorFlow.js.</p>
+    </div>
+
+    <div class="workspace">
+      <!-- Cột trái: Webcam -->
+      <section class="card">
+        <div class="video-wrapper">
+          <div id="placeholder" class="placeholder">
+            <div class="placeholder-title">Webcam chưa bật</div>
+            <div class="placeholder-sub">Bấm nút bên dưới để bắt đầu nhận diện</div>
+          </div>
+          <video id="webcam" style="display:none;" playsinline></video>
+          <canvas id="output" width="640" height="480"></canvas>
+          <div id="warningBanner" class="warning-banner">Chỉ sử dụng 1 bàn tay!</div>
+        </div>
+
+        <div class="cam-controls">
+          <button id="startBtn" class="btn btn-primary" onclick="init()">Bật Webcam &amp; Bắt đầu</button>
+          <label class="toggle-label">
+            <input type="checkbox" id="autoTypeToggle" checked>
+            Tự động ghép chữ (giữ 1 giây)
+          </label>
+        </div>
+      </section>
+
+      <!-- Cột phải: Kết quả & Ghép câu -->
+      <aside class="right-col">
+        <div class="card">
+          <div class="card-label">Ký hiệu hiện tại</div>
+          <div class="prediction-display">
+            <div id="result">--</div>
+          </div>
+          <div class="conf-row">
+            <span>Độ tự tin</span>
+            <span id="confValue">0.0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="confBar" class="progress-fill"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">Văn bản đã nhận diện</div>
+          <div id="sentenceBox" class="sentence-box empty">
+            Các chữ cái sẽ xuất hiện ở đây khi bạn giữ ký hiệu...
+          </div>
+          <div class="sentence-actions">
+            <button class="btn btn-outline" onclick="speakSentence()">Đọc</button>
+            <button class="btn btn-outline" onclick="copySentence()">Sao chép</button>
+            <button class="btn btn-heat" onclick="clearSentence()">Xóa hết</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    // Cursor ambient glow
+    const glow = document.getElementById('cursorGlow');
+    window.addEventListener('mousemove', (e) => {
+      glow.style.left = e.clientX + 'px';
+      glow.style.top = e.clientY + 'px';
+    });
+
+    const CLASSES = [
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+      'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+      'del', 'space'
+    ];
+
+    let mlpModel;
+    let sentence = "";
+    let stableLabel = "";
+    let stableCount = 0;
+    let lastAddedTime = 0;
+    const STABLE_FRAMES = 15;
+    const COOLDOWN_MS = 1800;
+
+    const videoEl = document.getElementById('webcam');
+    const canvasEl = document.getElementById('output');
+    const ctx = canvasEl.getContext('2d');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const warningBanner = document.getElementById('warningBanner');
+
+    function setStatus(type, text) {
+      statusDot.className = 'status-dot ' + type;
+      statusText.innerText = text;
+    }
+
+    function updateSentenceUI() {
+      const box = document.getElementById('sentenceBox');
+      if (sentence.length === 0) {
+        box.className = 'sentence-box empty';
+        box.innerText = 'Các chữ cái sẽ xuất hiện ở đây khi bạn giữ ký hiệu...';
+      } else {
+        box.className = 'sentence-box';
+        box.innerText = sentence;
+      }
+    }
+
+    function clearSentence() {
+      sentence = "";
+      updateSentenceUI();
+    }
+
+    function copySentence() {
+      if (!sentence) return;
+      navigator.clipboard.writeText(sentence);
+      setStatus('active', 'Đã sao chép!');
+      setTimeout(() => setStatus('active', 'Đang nhận diện'), 1500);
+    }
+
+    function speakSentence() {
+      if (!sentence) return;
+      const utter = new SpeechSynthesisUtterance(sentence);
+      utter.lang = 'en-US';
+      window.speechSynthesis.speak(utter);
+    }
+
+    async function init() {
+      document.getElementById("startBtn").disabled = true;
+      setStatus('loading', 'Đang tải model AI...');
+
+      try {
+        mlpModel = await tf.loadLayersModel('./mlp_web_model/model.json');
+
+        const hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.7,
+          selfieMode: true
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoEl, {
+          onFrame: async () => { await hands.send({ image: videoEl }); },
+          width: 640,
+          height: 480
+        });
+
+        await camera.start();
+        document.getElementById("placeholder").style.display = "none";
+        document.getElementById("startBtn").innerText = "Webcam đang chạy";
+        setStatus('active', 'Đang nhận diện');
+      } catch (err) {
+        setStatus('error', 'Lỗi: ' + err.message);
+        document.getElementById("startBtn").disabled = false;
+        console.error(err);
+      }
+    }
+
+    function onResults(results) {
+      ctx.save();
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      ctx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
+
+      const multiLandmarks = results.multiHandLandmarks;
+
+      if (!multiLandmarks || multiLandmarks.length === 0) {
+        warningBanner.style.display = "none";
+        document.getElementById("result").innerText = "--";
+        document.getElementById("confValue").innerText = "0.0%";
+        document.getElementById("confBar").style.width = "0%";
+        stableCount = 0;
+        ctx.restore();
+        return;
+      }
+
+      if (multiLandmarks.length > 1) {
+        warningBanner.style.display = "block";
+        document.getElementById("result").innerText = "!";
+        stableCount = 0;
+        ctx.restore();
+        return;
+      }
+
+      warningBanner.style.display = "none";
+      const landmarks = multiLandmarks[0];
+      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: '#8fd0e0', lineWidth: 3 });
+      drawLandmarks(ctx, landmarks, { color: '#ff5b3a', lineWidth: 1, radius: 4 });
+      ctx.restore();
+
+      const handedness = results.multiHandedness[0].label;
+      const features = [];
+      for (const lm of landmarks) {
+        const x = handedness === "Right" ? (1 - lm.x) : lm.x;
+        features.push(x, lm.y, lm.z);
+      }
+
+      const predData = tf.tidy(() => {
+        const input = tf.tensor2d([features], [1, 63]);
+        return mlpModel.predict(input).dataSync();
+      });
+
+      let maxIdx = 0;
+      for (let i = 1; i < predData.length; i++) {
+        if (predData[i] > predData[maxIdx]) maxIdx = i;
+      }
+
+      const conf = predData[maxIdx] * 100;
+      const label = CLASSES[maxIdx] || `Class ${maxIdx}`;
+
+      document.getElementById("confValue").innerText = conf.toFixed(1) + "%";
+      document.getElementById("confBar").style.width = conf.toFixed(1) + "%";
+
+      if (conf >= 70) {
+        document.getElementById("result").innerText = label;
+
+        if (document.getElementById("autoTypeToggle").checked) {
+          if (label === stableLabel) {
+            stableCount++;
+          } else {
+            stableLabel = label;
+            stableCount = 1;
+          }
+
+          const now = Date.now();
+          if (stableCount >= STABLE_FRAMES && (now - lastAddedTime > COOLDOWN_MS)) {
+            if (label === 'space') {
+              sentence += ' ';
+            } else if (label === 'del') {
+              sentence = sentence.slice(0, -1);
+            } else {
+              sentence += label;
+            }
+            updateSentenceUI();
+            lastAddedTime = now;
+            stableCount = 0;
+          }
+        }
+      } else {
+        document.getElementById("result").innerText = "?";
+        stableCount = 0;
+      }
+    }
+  </script>
+</body>
+</html>
